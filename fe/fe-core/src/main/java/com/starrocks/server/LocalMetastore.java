@@ -2718,6 +2718,14 @@ public class LocalMetastore implements ConnectorMetadata, MVRepairHandler, Memor
         }
     }
 
+    public Optional<Table> mayGetTable(long dbId, long tableId) {
+        return Optional.ofNullable(getTable(dbId, tableId));
+    }
+
+    public Optional<Table> mayGetTable(String dbName, String tableName) {
+        return Optional.ofNullable(getTable(dbName, tableName));
+    }
+
     public Table getTable(long dbId, long tableId) {
         Database db = idToDb.get(dbId);
         if (db == null) {
