@@ -33,6 +33,7 @@ namespace starrocks {
 struct AggInRuntimeFilterBuilderImpl {
     template <LogicalType ltype>
     RuntimeFilter* operator()(ObjectPool* pool, Aggregator* aggregator, size_t build_expr_order) {
+<<<<<<< HEAD
         auto runtime_filter = InRuntimeFilter<ltype>::create(pool);
         auto& hash_map_variant = aggregator->hash_map_variant();
         hash_map_variant.visit([&](auto& variant_value) {
@@ -65,6 +66,21 @@ struct AggInRuntimeFilterBuilderImpl {
             }
         });
 
+=======
+        auto group_by_columns = extract_group_by_columns(aggregator);
+        Column* build_column = group_by_columns[build_expr_order].get();
+        // A constant build column carries a single value spread over column->size() logical rows but
+        // is backed by one physical row. InRuntimeFilter::build() down_casts to the typed/nullable
+        // column and iterates column->size() rows (its is_constant() check is only a DCHECK, compiled
+        // out in release builds), so a ConstColumn would be misinterpreted and overrun its backing
+        // storage. Returning nullptr leaves the merged filter always-true (conservative and correct),
+        // mirroring the ConstColumn handling in AggTopNRuntimeFilterBuilder::update().
+        if (build_column->is_constant()) {
+            return nullptr;
+        }
+        auto runtime_filter = InRuntimeFilter<ltype>::create(pool);
+        runtime_filter->build(build_column);
+>>>>>>> aa9528b7d4 ([BugFix] Skip ConstColumn build key in AGG IN runtime filter (#74941))
         return runtime_filter;
     }
 };
@@ -75,6 +91,10 @@ RuntimeFilter* AggInRuntimeFilterBuilder::build(Aggregator* aggretator, ObjectPo
 }
 
 bool AggInRuntimeFilterMerger::merge(size_t seq, RuntimeFilterBuildDescriptor* desc, RuntimeFilter* in_rf) {
+    // A null builder result means this driver could not contribute its keys to the IN filter (e.g. a
+    // constant build column, see AggInRuntimeFilterBuilder). An IN filter is only correct if it
+    // contains every build-side key, so a single missing contribution forces the whole filter to
+    // always-true (no pruning); return false so it is never published.
     if (in_rf == nullptr) {
         _always_true = true;
         return false;
