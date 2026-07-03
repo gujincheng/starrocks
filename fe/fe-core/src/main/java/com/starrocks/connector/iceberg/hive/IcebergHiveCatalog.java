@@ -132,26 +132,49 @@ public class IcebergHiveCatalog implements IcebergCatalog {
 
     @Override
     public void createDB(String dbName, Map<String, String> properties) {
+        LOG.info("Start creating database '{}' with properties: {}", dbName, properties);
         properties = properties == null ? new HashMap<>() : properties;
+
+        // Log relevant configuration
+        LOG.info("Hadoop config - hive.metastore.warehouse.dir: {}, fs.s3a.endpoint: {}, fs.s3a.path.style.access: {}",
+                conf.get(METASTOREWAREHOUSE.varname),
+                conf.get("fs.s3a.endpoint"),
+                conf.get("fs.s3a.path.style.access"));
+
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
             if (key.equalsIgnoreCase(LOCATION_PROPERTY)) {
+                LOG.info("Validating location URI: {}", value);
                 try {
                     URI uri = new Path(value).toUri();
+                    LOG.info("Parsed URI - scheme: {}, host: {}, path: {}", uri.getScheme(), uri.getHost(), uri.getPath());
                     FileSystem fileSystem = FileSystem.get(uri, conf);
-                    fileSystem.exists(new Path(value));
+                    LOG.info("Got FileSystem instance: {}", fileSystem.getClass().getName());
+                    boolean exists = fileSystem.exists(new Path(value));
+                    LOG.info("Location '{}' exists: {}", value, exists);
                 } catch (Exception e) {
-                    LOG.error("Invalid location URI: {}", value, e);
-                    throw new StarRocksConnectorException("Invalid location URI: %s. msg: %s", value, e.getMessage());
+                    LOG.error("Invalid location URI: {}, error type: {}, message: {}",
+                            value, e.getClass().getName(), e.getMessage(), e);
+                    throw new StarRocksConnectorException(
+                            "Invalid location URI: %s. msg: %s", value, e.getMessage());
                 }
             } else {
+                LOG.error("Unrecognized property: {} = {}", key, value);
                 throw new IllegalArgumentException("Unrecognized property: " + key);
             }
         }
 
         Namespace ns = Namespace.of(dbName);
-        delegate.createNamespace(ns, properties);
+        LOG.info("Creating namespace '{}' in HMS", dbName);
+        try {
+            delegate.createNamespace(ns, properties);
+            LOG.info("Successfully created namespace '{}' in HMS", dbName);
+        } catch (Exception e) {
+            LOG.error("Failed to create namespace '{}' in HMS, error type: {}, message: {}",
+                    dbName, e.getClass().getName(), e.getMessage(), e);
+            throw e;
+        }
     }
 
     @Override
